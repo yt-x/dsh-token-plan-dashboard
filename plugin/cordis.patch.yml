@@ -1,0 +1,7 @@
+# @local/dsh-token-plan-dashboard bundle patch：向 host composition 插入插件行。
+# 本插件是 host-plane：host 半区注册 webServer 路由并提供额度查询，client 半区
+# 注册 sidebar.panellist 入口与 main keyed 仪表盘页面。必须落在 host composition，
+# 绝不进 agent preset。
+- insert:
+    - id: token-plan-dashboard
+      name: '@local/dsh-token-plan-dashboard'
