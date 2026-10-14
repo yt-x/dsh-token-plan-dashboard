@@ -21,8 +21,10 @@ V1.1（监测开关）已实现，静态/冒烟/Config 探测通过；三轮实�
 ## 下一步
 
 1. 实机验证 V1.1 —— 重装 0.2.3 bundle 后**完全重启 DSH Desktop**，按 spec/current.md 验收判定 1-10 逐项过；若设置区仍提示不可用，看警告文案是 missing 还是 unavailable 并回报。
-2. 核对 MiMo 卡片重置倒计时与控制台对时 —— 一致则关闭 CONTEXT.md 待确认区的时区条目。
-3. 规划 V1.1 候选：MiMo 受控登录窗自动抓 cookie（见 PLAN.md 分期）；plugins.bundle.config 官方配置页（开关的第二入口，本轮延后）—— 进入开发前先走需求收敛。
+2. **火山签名路径首次真机验证**（CONSTRAINTS.md 第一条）—— 用真实 AK/SK 打通一次；若报签名类错误，先把 SignedHeaders 改成固定序再怀疑 AK/SK。
+3. **修火山签名错误分类**（CONSTRAINTS.md 第三条）—— 4xx 也读响应体信封，按 `Code` 判鉴权类错误走 expired，让 AK/SK 填错时给凭证引导而非「HTTP 400」。
+4. 核对 MiMo 卡片重置倒计时与控制台对时 —— 一致则关闭 CONTEXT.md 待确认区的时区条目。
+5. 规划 V1.1 候选：MiMo 受控登录窗自动抓 cookie（见 PLAN.md 分期）；plugins.bundle.config 官方配置页（开关的第二入口，本轮延后）—— 进入开发前先走需求收敛。
 
 ## 阻塞
 

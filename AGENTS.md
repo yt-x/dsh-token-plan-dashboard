@@ -12,6 +12,7 @@
 | 本轮变更明细（目标/任务/验证） | changes/ |
 | 验证证据 | verification/ |
 | 术语与领域知识 | CONTEXT.md |
+| 上游接口事实（端点/签名/字段/错误语义） | docs/reference/upstream-apis.md |
 | 非平凡决策因果 | decisions/ |
 | 坑与规避 | CONSTRAINTS.md（第一个坑出现时建） |
 | 插件实现 | plugin/（可安装 bundle） |

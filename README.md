@@ -16,4 +16,6 @@ DeepSeek Harness（DSH）客户端插件：在侧边栏提供一个只读仪表�
 | 当前规格 | V1 的行为契约与验收判定 | [spec/current.md](spec/current.md) |
 | 进度与下一步 | 功能进度、当前状态、阻塞 | [TODO.md](TODO.md) |
 | 术语 | AFP、Credits、窗口等 | [CONTEXT.md](CONTEXT.md) |
+| 上游接口 | 三家服务的端点、签名、字段与错误语义 | [docs/reference/upstream-apis.md](docs/reference/upstream-apis.md) |
 | 决策因果 | 传输方式、凭证存储等取舍 | [decisions/](decisions/) |
+| 坑与规避 | 已知陷阱与规避手法 | [CONSTRAINTS.md](CONSTRAINTS.md) |

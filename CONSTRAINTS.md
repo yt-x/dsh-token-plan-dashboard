@@ -1,5 +1,36 @@
 # CONSTRAINTS.md（坑与规避）
 
+## 2026-10-13：火山签名路径从未实机验证，SignedHeaders 顺序与官方要求不符
+
+**待实机验证项，不是已确认结论。** 火山签名 V4 要求 canonical headers 与 SignedHeaders 用**固定顺序** `host;x-date;x-content-sha256;content-type`（非字母序，见 docs/reference/upstream-apis.md）。
+
+`plugin/providers/volcano.js` 的 `sign()` 用 `Object.keys(signed).sort()` 构造，实际产出字母序 `content-type;host;x-content-sha256;x-date`，**与固定序不同**。
+
+两种可能，现有证据无法区分：
+
+1. 火山网关实际接受字母序 → 当前实现可用；
+2. 火山严格校验固定序 → 当前实现签名必然失败。
+
+**我们手上没有真实 AK/SK，这条路径从未端到端跑通**（冒烟只覆盖三家的失效分支，走不到签名成功分支）。规避：**首次用真实 AK/SK 验证时，若返回签名类错误，第一件事是把 SignedHeaders 改成固定序**，不要先去怀疑 AK/SK 填错。改法是把 `.sort()` 换成显式固定数组。
+
+## 2026-10-13：火山 Action 名与其它第三方实现不同（勿据他人代码改我们的）
+
+我们调 `GetAgentPlanAFPUsage`（`plugin/providers/volcano.js` 的 `ACTION` + spec/current.md 一致，**无内部漂移**）。另有第三方实现调 `GetAFPUsage`。
+
+回源核验：某第三方完整实现里 `GetAFPUsage` 出现 12 次、`GetAgentPlanAFPUsage` 出现 **0 次**。即这是**两家各自在使用不同 Action 名**，不是谁写错。
+
+两个名字是否同一 Action 的别名，**未核实**（无法独立确认官方文档，其页面为 JS 渲染）。
+
+规避：**不要**因为读到他方实现就改我们的 `ACTION` —— 我们的写法与自家规格自洽。但记住 `GetAFPUsage` 是**已验证可用的回落候选**：若 `GetAgentPlanAFPUsage` 某天被上游下线或持续报未知 Action，优先试它。
+
+## 2026-10-13：火山签名类错误常返 HTTP 400，不是 401/403
+
+火山 OpenAPI 网关对签名/凭据类错误**常返 4xx（多为 HTTP 400）**，并携带与 200 路径相同的 `ResponseMetadata.Error` 信封，**而非 401/403**。
+
+`plugin/providers/volcano.js` 当前对非 401/403 一律 `failure()`（普通错误）。后果：**AK/SK 填错时用户看到「HTTP 400」，而不是「凭证失效、去更新 AK/SK」的引导**，卡片不进 expired 态。
+
+规避（待修）：4xx 也要读响应体信封，按 `Code` 判定是否为鉴权类错误再决定 `expired()` / `failure()`。另注意**错误信封也可能是顶层 `Error`**（不只 `ResponseMetadata.Error`）。见 TODO.md 下一步。
+
 ## 2026-10-13：DSH Desktop bundle 安装器不落实 dependencies
 
 现象：插件 package.json 声明 `dependencies`（如 `@deepseek-ai/schemastery`）后，`dsh plugin add` / Web 插件页安装会生成 generation 并写好 pnpm lock（`lock.yaml` 有记录、`.modules.yaml` 的 hoistedLocations 也列出），但 **包文件不落盘**——`node_modules/@deepseek-ai/` 是空目录，运行时裸 import 解析失败。实测于 DSH Desktop 0.1.7-rc.2（registry 为 npmmirror）。
