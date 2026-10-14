@@ -41,9 +41,9 @@ coverage/
 
 # -----------------------------------------------------------------------------
 # 3. 第三方调研克隆（临时材料，非本项目内容）
-#    .recon/ 内是自己 clone 下来的他人仓库（如 cc-switch），带自己的 .git，
-#    入库会变成 embedded repository（gitlink）从而破坏仓库；调研结论已沉淀到
-#    cc-switch-quota-recon.md，克隆本体不需要保留。
+#    .recon/ 内是临时 clone 下来的他人仓库，自带 .git，入库会变成
+#    embedded repository（gitlink）从而破坏仓库；调研结论已沉淀到
+#    docs/reference/ 与 CONSTRAINTS.md，克隆本体不保留。
 # -----------------------------------------------------------------------------
 .recon/
 /recon/
