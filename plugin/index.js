@@ -1,14 +1,73 @@
 /**
  * Token Plan Dashboard — Host 半区。
  * 注册三条 webServer 路由供 Client 同源 fetch 调用：
- *   GET  /dsh-token-plan-dashboard/state       各 provider 凭证配置状态（绝不回值）
- *   POST /dsh-token-plan-dashboard/snapshot    拉取额度（body 可带 { provider } 只刷一家）
+ *   GET  /dsh-token-plan-dashboard/state       各 provider 凭证配置状态与监测开关（绝不回值）
+ *   POST /dsh-token-plan-dashboard/snapshot    拉取额度（只含已启用的 provider；body 可带 { provider } 只刷一家）
  *   POST /dsh-token-plan-dashboard/credentials 写入/清除凭证（空串 = 清除）
- * 凭证全部走 ctx.credentials 服务；本半区只用 Node 内置模块，不 import 任何 @deepseek-ai/* 包。
+ * 凭证全部走 ctx.credentials 服务；本半区除 Config 声明用的 @deepseek-ai/schemastery
+ * （唯一豁免，见 decisions/0003）外只用 Node 内置模块，不 import 任何 @deepseek-ai/* 包。
+ *
+ * 监测开关：Config.monitors 是 dict（显式 false = 关闭，缺省/true = 启用），
+ * volatile 字段——用户修改经 dsh-config-editor 写回 profile patch 并就地热更新，
+ * 路由每次请求读 config.monitors.get()，读到即最新值。
  */
 import { fetchVolcano } from './providers/volcano.js';
 import { fetchKimi } from './providers/kimi.js';
 import { fetchMimo } from './providers/mimo.js';
+
+// schemastery 解析链（DSH Desktop 的 bundle 安装器不会落实 dependencies——lock 有记录、
+// 文件不落盘，见 CONSTRAINTS.md，所以包级依赖只是声明，运行时必须兜底）：
+//   1) 裸 import：依赖正常安装的环境（以及未来的安装器）走这里；
+//   2) 应用自带副本：host 进程是 Electron 主进程时 process.resourcesPath 即 resources 根；
+//      实测 DSH Desktop 的 host 跑在应用自带 node.exe（路径形如
+//      resources/app.asar.unpacked/node_modules/node/bin/node.exe），此时从 execPath
+//      逐级向上枚举祖先目录，按 app.asar.unpacked/node_modules 与 node_modules 两种前缀
+//      探测；也可用 DSH_APP_RESOURCES 环境变量直接指定 resources 根；
+//   3) 都失败则 Config = undefined 降级：cordis 跳过配置校验、设置通道不含本 entry，
+//      开关功能失效但其余功能正常（本地冒烟即此路径）。
+import { existsSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+
+const SCHEMATERY_REL = ['node_modules', '@deepseek-ai', 'schemastery', 'lib', 'index.mjs'];
+
+function* resourcesRootCandidates() {
+  if (process.env.DSH_APP_RESOURCES) yield process.env.DSH_APP_RESOURCES;
+  if (process.resourcesPath) yield process.resourcesPath;
+  let dir = process.execPath ? path.dirname(process.execPath) : '';
+  while (dir && path.dirname(dir) !== dir) {
+    yield dir;
+    dir = path.dirname(dir);
+  }
+}
+
+async function loadSchemastery() {
+  try {
+    return (await import('@deepseek-ai/schemastery')).default;
+  } catch { /* 继续兜底 */ }
+  for (const root of resourcesRootCandidates()) {
+    for (const base of [path.join(root, 'app.asar.unpacked'), root]) {
+      const entry = path.join(base, ...SCHEMATERY_REL);
+      if (!existsSync(entry)) continue;
+      try {
+        return (await import(pathToFileURL(entry).href)).default;
+      } catch { /* 试下一个候选路径 */ }
+    }
+  }
+  return null;
+}
+
+const z = await loadSchemastery();
+if (!z) {
+  console.warn('[token-plan-dashboard] @deepseek-ai/schemastery unavailable, monitor toggles disabled');
+}
+
+export const Config = z
+  ? z.object({
+      // 每 provider 监测开关：显式 false = 关闭；缺省 / true = 启用（新增 provider 默认启用）。
+      monitors: z.dict(z.boolean()).volatile(),
+    })
+  : undefined;
 
 export const name = 'token-plan-dashboard';
 export const inject = ['webServer', 'credentials'];
@@ -41,6 +100,17 @@ const PROVIDERS = [
     ],
   },
 ];
+
+// config.monitors 生产环境是 Volatile 引用（.get() 读值）；冒烟里是 plain object 或缺省，都做防御。
+function readMonitors(config) {
+  const field = config && config.monitors;
+  const value = field && typeof field.get === 'function' ? field.get() : field;
+  return value && typeof value === 'object' ? value : {};
+}
+
+function isEnabled(config, id) {
+  return readMonitors(config)[id] !== false;
+}
 
 function sendJson(res, status, body) {
   res.statusCode = status;
@@ -112,7 +182,7 @@ async function buildAccount(ctx, provider) {
   }
 }
 
-async function handleState(ctx, req, res) {
+async function handleState(ctx, config, req, res) {
   if (req.method !== 'GET') return sendJson(res, 405, { code: 'method-not-allowed' });
   const providers = [];
   for (const p of PROVIDERS) {
@@ -132,12 +202,13 @@ async function handleState(ctx, req, res) {
         writable: info ? info.writable !== false : true,
       });
     }
-    providers.push({ provider: p.id, label: p.label, fields });
+    providers.push({ provider: p.id, label: p.label, enabled: isEnabled(config, p.id), fields });
   }
-  sendJson(res, 200, { providers });
+  // configActive：诊断字段——Config 是否成功声明（schemastery 解析链是否命中）。
+  sendJson(res, 200, { providers, configActive: Boolean(Config) });
 }
 
-async function handleSnapshot(ctx, req, res) {
+async function handleSnapshot(ctx, config, req, res) {
   if (req.method !== 'POST') return sendJson(res, 405, { code: 'method-not-allowed' });
   let body;
   try {
@@ -145,12 +216,13 @@ async function handleSnapshot(ctx, req, res) {
   } catch {
     return sendJson(res, 400, { code: 'bad-request', message: 'request body must be a JSON object' });
   }
-  let targets = PROVIDERS;
+  if (body.provider !== undefined && !PROVIDERS.some((p) => p.id === body.provider)) {
+    return sendJson(res, 400, { code: 'bad-request', message: `unknown provider: ${String(body.provider)}` });
+  }
+  // 已关闭的 provider 完全不发起请求、不出现在 accounts（指定已关闭的 provider → 空 accounts）。
+  let targets = PROVIDERS.filter((p) => isEnabled(config, p.id));
   if (body.provider !== undefined) {
-    targets = PROVIDERS.filter((p) => p.id === body.provider);
-    if (targets.length === 0) {
-      return sendJson(res, 400, { code: 'bad-request', message: `unknown provider: ${String(body.provider)}` });
-    }
+    targets = targets.filter((p) => p.id === body.provider);
   }
   const accounts = await Promise.all(targets.map((p) => buildAccount(ctx, p)));
   sendJson(res, 200, { accounts, fetchedAt: new Date().toISOString() });
@@ -197,13 +269,13 @@ async function handleCredentials(ctx, req, res) {
   sendJson(res, 200, { ok: true });
 }
 
-export function apply(ctx) {
+export function apply(ctx, config) {
   ctx.effect(
     () =>
       ctx.webServer.register({
         kind: 'exact',
         path: `${PREFIX}/state`,
-        handler: (req, res) => handleState(ctx, req, res),
+        handler: (req, res) => handleState(ctx, config, req, res),
       }),
     'token-plan-dashboard: state route',
   );
@@ -212,7 +284,7 @@ export function apply(ctx) {
       ctx.webServer.register({
         kind: 'exact',
         path: `${PREFIX}/snapshot`,
-        handler: (req, res) => handleSnapshot(ctx, req, res),
+        handler: (req, res) => handleSnapshot(ctx, config, req, res),
       }),
     'token-plan-dashboard: snapshot route',
   );

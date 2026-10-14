@@ -9,7 +9,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react');
     const h = React.createElement;
-    const { useState, useEffect, useCallback } = React;
+    const { useState, useEffect, useCallback, useRef } = React;
 
     const NS = 'tokenPlanDashboard';
     const PANEL_ID = 'token-plan-dashboard';
@@ -21,8 +21,13 @@ window.__ModuleLoader__.load({
       'dashboard.refresh': '刷新',
       'dashboard.refreshing': '刷新中…',
       'dashboard.lastFetched': '更新于',
-      'dashboard.empty': '尚未配置任何订阅凭证。在下方「凭证配置」中填写后，刷新即可看到额度。',
+      'dashboard.empty': '没有在监测的订阅。在下方「设置」中开启监测并配置凭证后，刷新即可看到额度。',
       'dashboard.loadFailed': '数据加载失败',
+      'settings.title': '设置',
+      'settings.monitor': '监测',
+      'settings.disabledHint': '已关闭监测；已保存的凭证保留，重新开启即可恢复。',
+      'settings.config_missing': '设置服务不可用（configForms 服务未注入）：开关状态的修改不会保存。',
+      'settings.config_unavailable': '设置服务中找不到本插件的配置项（host 侧 Config 未激活）：开关状态的修改不会保存。',
       'status.ok': '正常',
       'status.unconfigured': '未配置',
       'status.expired': '凭证失效',
@@ -40,7 +45,6 @@ window.__ModuleLoader__.load({
       'unit.minute': '分',
       'unit.second': '秒',
       'extra.balance': '余额',
-      'creds.title': '凭证配置',
       'creds.save': '保存',
       'creds.saving': '保存中…',
       'creds.saved': '已保存',
@@ -59,8 +63,13 @@ window.__ModuleLoader__.load({
       'dashboard.refresh': 'Refresh',
       'dashboard.refreshing': 'Refreshing…',
       'dashboard.lastFetched': 'Updated at',
-      'dashboard.empty': 'No credentials configured yet. Fill in the Credentials section below, then refresh.',
+      'dashboard.empty': 'No subscriptions are being monitored. Enable one and fill in its credentials in Settings below, then refresh.',
       'dashboard.loadFailed': 'Failed to load data',
+      'settings.title': 'Settings',
+      'settings.monitor': 'Monitor',
+      'settings.disabledHint': 'Monitoring is off; saved credentials are kept and resume when re-enabled.',
+      'settings.config_missing': 'Settings service unavailable (configForms not injected): toggle changes will not persist.',
+      'settings.config_unavailable': 'This plugin’s config entry is missing from the settings service (host Config inactive): toggle changes will not persist.',
       'status.ok': 'OK',
       'status.unconfigured': 'Not configured',
       'status.expired': 'Credential expired',
@@ -78,7 +87,6 @@ window.__ModuleLoader__.load({
       'unit.minute': 'm',
       'unit.second': 's',
       'extra.balance': 'Balance',
-      'creds.title': 'Credentials',
       'creds.save': 'Save',
       'creds.saving': 'Saving…',
       'creds.saved': 'Saved',
@@ -284,6 +292,48 @@ window.__ModuleLoader__.load({
 .tpd-creds-note { font-size: 12px; }
 .tpd-creds-note-ok { color: var(--dsw-alias-state-success-primary, #34a853); }
 .tpd-creds-note-err { color: var(--dsw-alias-state-error-primary, #d83931); }
+.tpd-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.tpd-switch-row .tpd-creds-provider-name { margin-bottom: 0; }
+.tpd-switch {
+  width: 32px;
+  height: 18px;
+  flex: none;
+  border-radius: 9px;
+  border: 1px solid var(--dsw-alias-border-l1, #dee0e3);
+  background: var(--dsw-alias-bg-layer-3, #eff0f1);
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+}
+.tpd-switch:disabled { opacity: 0.5; cursor: default; }
+.tpd-switch-knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary, #8a8f98);
+  transition: left 0.15s ease, background 0.15s ease;
+}
+.tpd-switch-on {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary, #247bbf) 25%, transparent);
+  border-color: var(--dsw-alias-brand-primary, #247bbf);
+}
+.tpd-switch-on .tpd-switch-knob {
+  left: 15px;
+  background: var(--dsw-alias-brand-primary, #247bbf);
+}
+.tpd-config-warn {
+  font-size: 12px;
+  color: var(--dsw-alias-state-warn-primary, #f2994a);
+  margin-bottom: 12px;
+}
 `;
 
     function formatNumber(n) {
@@ -418,12 +468,12 @@ window.__ModuleLoader__.load({
     }
 
     function ProviderCredentialForm(props) {
-      const { providerState, t, onSaved } = props;
+      const { providerState, t, onSaved, onAutoEnable } = props;
       const [values, setValues] = useState({});
       const [busy, setBusy] = useState(false);
       const [note, setNote] = useState(null); // { kind: 'ok' | 'err', text }
 
-      const post = async (bodyValues) => {
+      const post = async (bodyValues, autoEnable) => {
         setBusy(true);
         setNote(null);
         try {
@@ -439,6 +489,8 @@ window.__ModuleLoader__.load({
           }
           setValues({});
           setNote({ kind: 'ok', text: t('creds.saved') });
+          // 保存（非清除）成功后确保该 provider 处于启用状态（Q3 决策：保存凭证自动开启监测）。
+          if (autoEnable && onAutoEnable) onAutoEnable(providerState.provider);
           onSaved();
         } catch (err) {
           setNote({ kind: 'err', text: `${t('creds.failed')}: ${String((err && err.message) || err)}` });
@@ -454,18 +506,17 @@ window.__ModuleLoader__.load({
           if (typeof v === 'string' && v.trim() !== '') filled[field.key] = v;
         }
         if (Object.keys(filled).length === 0) return;
-        post(filled);
+        post(filled, true);
       };
       const onClear = () => {
         const cleared = {};
         for (const field of providerState.fields) cleared[field.key] = '';
-        post(cleared);
+        post(cleared, false);
       };
 
       return h(
         'div',
         { className: 'tpd-creds-provider' },
-        h('div', { className: 'tpd-creds-provider-name' }, providerState.label),
         providerState.provider === 'mimo'
           ? h('div', { className: 'tpd-creds-guide' }, t('creds.mimoGuide'))
           : null,
@@ -511,14 +562,48 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // 设置区的一行：监测开关 + （启用时的）凭证表单。关闭时表单隐藏、凭证保留（Q2 决策）。
+    function ProviderSettingsRow(props) {
+      const { providerState, enabled, configWritable, t, onSaved, onToggle, onAutoEnable } = props;
+      return h(
+        'div',
+        { className: 'tpd-creds-provider' },
+        h(
+          'div',
+          { className: 'tpd-switch-row' },
+          h(
+            'button',
+            {
+              className: `tpd-switch ${enabled ? 'tpd-switch-on' : ''}`,
+              role: 'switch',
+              'aria-checked': enabled,
+              'aria-label': `${t('settings.monitor')} ${providerState.label}`,
+              disabled: !configWritable,
+              onClick: () => onToggle(providerState.provider, !enabled),
+            },
+            h('span', { className: 'tpd-switch-knob' }),
+          ),
+          h('span', { className: 'tpd-creds-provider-name' }, providerState.label),
+        ),
+        enabled
+          ? h(ProviderCredentialForm, { providerState, t, onSaved, onAutoEnable })
+          : h('div', { className: 'tpd-creds-guide' }, t('settings.disabledHint')),
+      );
+    }
+
     function DashboardPage(props) {
-      const { t } = props;
+      const { t, configForm } = props;
       const [credState, setCredState] = useState(null);
       const [accounts, setAccounts] = useState([]);
       const [fetchedAt, setFetchedAt] = useState(null);
       const [loading, setLoading] = useState(false);
       const [loadError, setLoadError] = useState(null);
       const [now, setNow] = useState(Date.now());
+      // 监测开关：null = 尚未从 configForms 读到（按全部启用渲染）；对象 = 已就绪。
+      const [monitors, setMonitors] = useState(null);
+      // 设置通道诊断：loading | ready | readonly | unavailable（entry 不在镜像）| missing（服务不存在）
+      const [configStatus, setConfigStatus] = useState('loading');
+      const monitorsRef = useRef({});
 
       const loadState = useCallback(async () => {
         const res = await fetch(`${API}/state`);
@@ -545,6 +630,32 @@ window.__ModuleLoader__.load({
         }
       }, []);
 
+      // 订阅监测开关（volatile 配置，写回 profile patch；别处改动经镜像自动回读）
+      useEffect(() => {
+        if (!configForm) {
+          setConfigStatus('missing');
+          return;
+        }
+        const pull = () => {
+          const snap = configForm.getSnapshot();
+          if (!snap || snap.status === 'unavailable') {
+            setConfigStatus('unavailable');
+            return;
+          }
+          if (snap.status !== 'ready') return; // loading：等下次回调
+          const value = snap.value;
+          const m =
+            value && typeof value === 'object' && value.monitors && typeof value.monitors === 'object'
+              ? value.monitors
+              : {};
+          monitorsRef.current = m;
+          setMonitors(m);
+          setConfigStatus(snap.writable === false ? 'readonly' : 'ready');
+        };
+        pull();
+        return configForm.subscribe(pull);
+      }, [configForm]);
+
       useEffect(() => {
         loadState().catch((err) => setLoadError(String((err && err.message) || err)));
         loadSnapshot();
@@ -560,7 +671,34 @@ window.__ModuleLoader__.load({
         loadSnapshot();
       }, [loadState, loadSnapshot]);
 
-      const anyConfigured = accounts.some((a) => a.configured);
+      const isOn = (id) => (monitors ? monitors[id] !== false : true);
+
+      const toggleProvider = useCallback(
+        async (id, next) => {
+          // 乐观更新让卡片墙立即增删；写失败时订阅回读会纠正为真实值。
+          const optimistic = { ...monitorsRef.current, [id]: next };
+          monitorsRef.current = optimistic;
+          setMonitors(optimistic);
+          if (!configForm) return;
+          try {
+            await configForm.mutate([{ op: 'set', path: ['monitors', id], value: next }]);
+          } catch {
+            // 忽略：subscribe 回读真实状态
+          }
+        },
+        [configForm],
+      );
+
+      // Q3 决策：保存凭证（非清除）成功后确保该 provider 处于启用状态。
+      const enableProvider = useCallback(
+        (id) => {
+          if (monitorsRef.current[id] === false) toggleProvider(id, true);
+        },
+        [toggleProvider],
+      );
+
+      // 卡片墙只展示「启用 ∧ 已配置凭证」（Q1 决策）；开关拨动即时生效。
+      const visibleAccounts = accounts.filter((a) => a.configured && isOn(a.provider));
 
       return h(
         'div',
@@ -581,21 +719,33 @@ window.__ModuleLoader__.load({
           ),
         ),
         loadError ? h('div', { className: 'tpd-error-banner' }, `${t('dashboard.loadFailed')}: ${loadError}`) : null,
-        !anyConfigured && !loading
+        visibleAccounts.length === 0 && !loading
           ? h('div', { className: 'tpd-empty' }, t('dashboard.empty'))
           : null,
         h(
           'div',
           { className: 'tpd-grid' },
-          accounts.map((account) => h(AccountCard, { key: account.provider, account, t, now })),
+          visibleAccounts.map((account) => h(AccountCard, { key: account.provider, account, t, now })),
         ),
         credState
           ? h(
               'div',
               { className: 'tpd-creds' },
-              h('div', { className: 'tpd-creds-title' }, t('creds.title')),
+              h('div', { className: 'tpd-creds-title' }, t('settings.title')),
+              configStatus === 'missing' || configStatus === 'unavailable'
+                ? h('div', { className: 'tpd-config-warn' }, t(`settings.config_${configStatus}`))
+                : null,
               credState.map((p) =>
-                h(ProviderCredentialForm, { key: p.provider, providerState: p, t, onSaved }),
+                h(ProviderSettingsRow, {
+                  key: p.provider,
+                  providerState: p,
+                  enabled: isOn(p.provider),
+                  configWritable: configStatus === 'ready',
+                  t,
+                  onSaved,
+                  onToggle: toggleProvider,
+                  onAutoEnable: enableProvider,
+                }),
               ),
             )
           : null,
@@ -603,10 +753,24 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale'],
+      // 服务级 inject：configForms 由组合内 @deepseek-ai/dsh-client-ui-settings 提供（已核实存在）。
+      // 注意不要把对应「包」写进 package.json 的 dsh.client.inject——包级注入按 profile 依赖树
+      // 解析，profile 里没有这个包，会让整个 client 插件加载失败（见 CONSTRAINTS.md）。
+      inject: ['slots', 'locale', 'configForms'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'token-plan-dashboard: dictionaries');
         const t = ctx.locale.bind(NS);
+        // 监测开关的配置句柄（entryId = cordis.patch.yml 行 id）。try/catch 是兜底：
+        // 极端情况下（服务被移出组合）降级为开关禁用 + 提示，不让页面全灭。
+        let configForm = null;
+        try {
+          configForm =
+            ctx.configForms && typeof ctx.configForms.get === 'function'
+              ? ctx.configForms.get('token-plan-dashboard')
+              : null;
+        } catch {
+          configForm = null;
+        }
         ctx.effect(() => {
           const style = document.createElement('style');
           style.dataset.pluginCss = 'dsh-token-plan-dashboard';
@@ -627,7 +791,7 @@ window.__ModuleLoader__.load({
         ctx.effect(
           () =>
             ctx.slots.inject('main', () =>
-              ctx.slots.register({ name: 'main', key: PANEL_ID, locale: NS }, () => h(DashboardPage, { t })),
+              ctx.slots.register({ name: 'main', key: PANEL_ID, locale: NS }, () => h(DashboardPage, { t, configForm })),
             ),
           'token-plan-dashboard: main page',
         );
