@@ -1,0 +1,11 @@
+# 安装包只保留 package.json 的 "files" 白名单内容；
+# 这里再排除本机与开发残留，避免 bundle 被污染。
+.npmignore
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+node_modules/
+.env
+.env.*

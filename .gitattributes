@@ -1,0 +1,27 @@
+# 仓库内统一用 LF 存储；Windows 检出的 CRLF 不算改动。
+# 本机 core.autocrlf=true，若不做归一，每次 git 触碰文件都会产生整文件 diff 噪声。
+* text=auto eol=lf
+
+# 文本文件显式声明
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.svg   text eol=lf
+
+# 二进制文件不做行尾转换
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+
+# 锁文件在 diff 里折叠，也不参与语言统计
+pnpm-lock.yaml  -diff linguist-generated
+package-lock.json -diff linguist-generated
+yarn.lock       -diff linguist-generated
