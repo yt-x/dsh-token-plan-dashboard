@@ -39,6 +39,8 @@
 
 相关事实：DSH Desktop 的 host 进程不是 Electron 主进程，是应用自带的 plain node.exe（`resources/app.asar.unpacked/node_modules/node/bin/node.exe`，入口 `resources/harness-node-entry.mjs`）——**没有 `process.resourcesPath`**。定位应用 resources 根要从 `process.execPath` 逐级向上枚举祖先目录，按 `app.asar.unpacked/node_modules` 与 `node_modules` 两种前缀探测（0.2.1 用 `dirname(execPath)/resources` 拼错过一次层级）。
 
+**换机器时的表现（接手前先知道）**：解析链靠 `process.execPath` 逐级向上找应用自带副本，因此**只对"node.exe 由 DSH 自己启动"这一形态有效**。若换到 DSH 装在别处的机器、或用系统 node 跑冒烟，裸 import 与祖先探测都会落空 → **走降级分支：Config 失效、开关不可用并显示提示，其余功能（卡片墙、刷新、凭证）正常**。这不是故障而是设计内的韧性行为；需要强制指定时用环境变量 `DSH_APP_RESOURCES` 指向应用 resources 根。
+
 ## 2026-10-13：client 半区 inject 分两级，故障面完全不同
 
 现象与结论（0.2.0 → 0.2.3 三轮实机排障）：
