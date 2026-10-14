@@ -20,7 +20,7 @@
 
 ## 插件开发的硬约束（与全局契约的差异）
 
-- Host 半区不 import 任何 `@deepseek-ai/*` 包；只用 Node 内置模块 + cordis 注入的服务。
+- Host 半区不 import 任何 `@deepseek-ai/*` 包；只用 Node 内置模块 + cordis 注入的服务。唯一例外：`@deepseek-ai/schemastery`，仅用于声明 `export const Config`（decisions/0003）。
 - Client 半区不 import 宿主 Client 包；React 从浏览器共享模块表 `require('react')`；样式只用 `--dsw-alias-*` 主题 token；可见文案走 Client locale 服务。
 - 凭证只走 `ctx.credentials` 服务；浏览器永远拿不到密钥值；禁止把凭证写进任何进 git 的文件。
 - 禁止手写 profile 的 package.json / cordis.patch.yml；安装只走 `plugin_manager` install_bundle / Web 插件页 / `dsh plugin add`。
