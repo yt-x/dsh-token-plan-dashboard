@@ -22,6 +22,8 @@ Host 半区（Node，ESM；除 Config 声明用的 @deepseek-ai/schemastery 外�
   plugin/providers/volcano.js  火山 OpenAPI V4 签名 + GetAgentPlanAFPUsage
   plugin/providers/kimi.js     GET api.kimi.com/coding/v1/usages
   plugin/providers/mimo.js     GET platform.xiaomimimo.com/api/v1/{balance,tokenPlan/detail,tokenPlan/usage}
+  plugin/vendor/schemastery.mjs  vendored schemastery 3.18.4（Config 声明用；随 bundle 发布）
+  plugin/vendor/cosmokit.mjs     vendored cosmokit 1.8.5（上者的唯一运行时依赖）
 Client 半区（浏览器，ModuleLoader 工厂，React 来自共享模块表）
   plugin/client.js             locale 字典 + panellist 入口 + main 页面（卡片墙 + 设置区：开关 + 凭证表单）
 ```
@@ -35,11 +37,12 @@ Host↔Client 传输：Host 注册 `webServer` HTTP 路由，Client 同源 `fetc
 ```
 
 - Host 声明 `export const Config`（`@deepseek-ai/schemastery`，host 半区唯一豁免的 @deepseek-ai import）：`monitors: z.dict(z.boolean()).volatile()`，默认 `{}`。
-- schemastery 解析链：裸 import → DSH Desktop 应用自带副本（可用 `DSH_APP_RESOURCES` 覆盖路径）→ 降级 Config = undefined（安装器不落实 bundle dependencies，见 CONSTRAINTS.md）；降级时开关失效、其余功能正常。
+- schemastery 来源：**自带 vendored 闭包优先**（`plugin/vendor/schemastery.mjs` + `plugin/vendor/cosmokit.mjs`，随 bundle 发布）→ 裸 import → 应用自带副本（可用 `DSH_APP_RESOURCES` 覆盖路径）→ 降级 Config = undefined。自带副本优先是**跨设备一致性**的要求（安装器不落实 bundle dependencies、应用目录布局因设备而异，见 CONSTRAINTS.md / decisions/0004）。
 - volatile 字段：修改经 dsh-config-editor 原子写回 profile patch，loader 就地更新运行中 fiber（不重启应用、不重挂插件），并持久化（重启、升级保留）。
 - 路由处理函数每次请求读 `config.monitors.get()`（Volatile 引用），读到即最新值。
 - 新增 provider 缺省即启用；从代码删除的 provider 残留键无害，忽略。
 - Client 经 `ctx.configForms.get('token-plan-dashboard')`（entryId = patch 行 id）读写，自带 revision 乐观锁与失败重读。configForms 为运行时探测（不硬 inject）：服务缺失时设置区开关禁用并显示提示，卡片墙按全部启用渲染。
+- 降级（Config 未声明）是兜底而非预期路径：Host 的 `settings.describe()` 会静默丢弃无 Config 的 entry，Client 读到 `unavailable` 并提示。冒烟对此设断言——Config 必须 present。
 
 ## Host 路由
 
@@ -133,3 +136,4 @@ Host↔Client 传输：Host 注册 `webServer` HTTP 路由，Client 同源 `fetc
 8. 倒计时每秒走动，到 0 后显示「等待重置」类文案，不崩溃。
 9. 深浅色主题下卡片与设置区均可读（只使用主题 token）。
 10. 浏览器控制台无 slot entry crash；credential 值不出现在任何响应体里（state 只回 configured/source/writable，Config 只有布尔开关）。
+11. 跨设备：在**未安装过本插件、无 node_modules、应用目录布局不同**的设备上安装后，`/state` 的 `configActive` 为 `true`，设置区不出现「Config 未激活」提示，开关可拨动、重启后保留。（由 vendored 闭包保证，见 CONSTRAINTS.md / decisions/0004。**2026-10-13 实机验收通过**：故障设备重装 0.2.4 并重启后恢复正常，见 verification/2026-10-13-v1.2.md。）

@@ -24,3 +24,7 @@ V1.1 要给每个 provider 加「启用/关闭监测」开关，需要：运行�
 ## 补充（2026-10-13 实机排障后）
 
 DSH Desktop 0.1.7-rc.2 的 bundle 安装器**不落实 dependencies**（lock 有记录、文件不落盘，见 CONSTRAINTS.md），「声明依赖 → 裸 import 可解析」的前提在实机不成立。因此 index.js 改为解析链：裸 import → 应用自带副本（resources/app.asar.unpacked/node_modules，与官方插件同源同版本 3.18.4）→ 降级无 Config。结构检查（vendor 字符串 / toJSON / meta.volatile / Symbol.for 跨副本 volatile 识别）均为结构式，应用自带副本与 bundle 自供副本等价。client 侧 configForms 同步改为运行时探测 + 降级（硬 inject 未满足会让整个 client 插件不激活，见 CONSTRAINTS.md）。
+
+## 后续修订（2026-10-13，见 decisions/0004）
+
+上述「应用自带副本」兜底**只在 host 进程由 DSH 自带 node.exe 启动的本机形态成立**，换设备即落空 → Config 降级 → `settings.describe()` 静默丢弃 entry → 开关不可用。已由 decisions/0004 取代：把 schemastery + cosmokit 的真实闭包 vendoring 进 bundle，解析链改为**自带副本优先**。本决策的 Config 形状与 volatile 选择仍然有效，仅「来源」部分被 0004 修订。
