@@ -15,19 +15,23 @@ import { fetchVolcano } from './providers/volcano.js';
 import { fetchKimi } from './providers/kimi.js';
 import { fetchMimo } from './providers/mimo.js';
 
-// schemastery 解析链（DSH Desktop 的 bundle 安装器不会落实 dependencies——lock 有记录、
-// 文件不落盘，见 CONSTRAINTS.md，所以包级依赖只是声明，运行时必须兜底）：
-//   1) 裸 import：依赖正常安装的环境（以及未来的安装器）走这里；
-//   2) 应用自带副本：host 进程是 Electron 主进程时 process.resourcesPath 即 resources 根；
-//      实测 DSH Desktop 的 host 跑在应用自带 node.exe（路径形如
-//      resources/app.asar.unpacked/node_modules/node/bin/node.exe），此时从 execPath
-//      逐级向上枚举祖先目录，按 app.asar.unpacked/node_modules 与 node_modules 两种前缀
-//      探测；也可用 DSH_APP_RESOURCES 环境变量直接指定 resources 根；
-//   3) 都失败则 Config = undefined 降级：cordis 跳过配置校验、设置通道不含本 entry，
-//      开关功能失效但其余功能正常（本地冒烟即此路径）。
+// schemastery 解析链。背景：DSH Desktop 的 bundle 安装器不会落实 dependencies——lock 有记录、
+// 文件不落盘（见 CONSTRAINTS.md），所以包级依赖只是声明，运行时必须自带兜底。
+// 顺序（自带副本优先，这是跨设备一致性的关键）：
+//   1) 自带 vendored 副本 plugin/vendor/schemastery.mjs：随 bundle 发布，任何设备都命中，
+//      是所有设备行为一致的根本保证（decisions/0004）；
+//   2) 裸 import：依赖正常安装的环境（以及未来的安装器）走这里；
+//   3) 应用自带副本：从 execPath 逐级向上枚举祖先目录，按 app.asar.unpacked/node_modules
+//      与 node_modules 两种前缀探测；也可用 DSH_APP_RESOURCES 直接指定 resources 根。
+//      ——注意这条只对「node.exe 由 DSH 自己启动」的形态有效，曾是本机可用/换设备失效的来源；
+//   4) 都失败则 Config = undefined 降级：cordis 跳过配置校验、settings 服务不服务本 entry，
+//      开关功能失效但其余功能正常（本地冒烟在无 vendor 的历史版本走此路径）。
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+
+// host 半区是 ESM，且本文件在 plugin/ 下，用相对 URL 拼绝对路径最稳（不依赖 cwd）。
+const VENDORED_SCHEMATERY = new URL('./vendor/schemastery.mjs', import.meta.url);
 
 const SCHEMATERY_REL = ['node_modules', '@deepseek-ai', 'schemastery', 'lib', 'index.mjs'];
 
@@ -42,9 +46,15 @@ function* resourcesRootCandidates() {
 }
 
 async function loadSchemastery() {
+  // 1) 自带副本：随 bundle 发布，不依赖安装器、不依赖应用布局。
+  try {
+    return (await import(VENDORED_SCHEMATERY.href)).default;
+  } catch { /* 继续兜底 */ }
+  // 2) 裸 import。
   try {
     return (await import('@deepseek-ai/schemastery')).default;
   } catch { /* 继续兜底 */ }
+  // 3) 应用自带副本。
   for (const root of resourcesRootCandidates()) {
     for (const base of [path.join(root, 'app.asar.unpacked'), root]) {
       const entry = path.join(base, ...SCHEMATERY_REL);

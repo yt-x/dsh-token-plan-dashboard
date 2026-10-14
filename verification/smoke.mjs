@@ -2,9 +2,8 @@
 // 1) 用 mock ctx + 不同 config 形状挂载 plugin/index.js，验证 state/snapshot/credentials
 //    三条路由的形状、参数校验，以及 V1.1 监测开关（monitors）的过滤行为。
 // 2) 用假凭证真实调三家接口，验证失效判定路径能走到 expired/error（不验证真实额度数据）。
-// 注：工作区裸 import 不可解析 @deepseek-ai/schemastery；本机 PATH 的 node 恰为 DSH 自带
-// node.exe，解析链经 execPath 祖先目录命中应用自带副本（与真实 host 进程同机制），所以本机
-// 跑出来 Config = present；无候选路径命中的环境会走降级（console.warn + Config === undefined）。
+// 注：工作区裸 import 不可解析 @deepseek-ai/schemastery；Config 由 plugin/vendor/ 自带副本
+// 提供（跨设备一致，见 decisions/0004），所以任何环境跑出来都应是 Config = present。
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 
@@ -55,9 +54,26 @@ function mockCtx() {
 
 const host = await import(pathToFileURL(path.join(pluginDir, 'index.js')).href);
 
-// Config 导出：本机 PATH 里 node 恰为 DSH 自带 node.exe → 解析链经 execPath 祖先目录命中应用
-// 自带副本，Config = present（与真实 host 进程同机制）；无候选路径命中的环境则降级为 undefined。
+// Config 导出：自带 vendored 副本（plugin/vendor/）优先，任何设备都应命中 → Config = present。
+// 这是跨设备一致性的核心保证：不再依赖安装器落盘 dependencies，也不依赖应用目录布局。
+// 若这里出现 degraded，说明 vendored 闭包不可加载——那是必须修的真故障，不是可接受降级。
 console.log('Config export:', host.Config ? 'present (schemastery resolved)' : 'degraded (schemastery unavailable)');
+if (!host.Config) {
+  throw new Error('Config must be present via the vendored closure; degraded is no longer acceptable (decisions/0004)');
+}
+// dsh-settings 接纳 entry 的三道门禁（缺任一 → entry 被静默丢弃 → 客户端开关不可用）：
+//   entry.fiber.runtime.Config 存在且带 toJSON；volatileForm(schema) 非 undefined。
+if (typeof host.Config.toJSON !== 'function') throw new Error('Config must expose toJSON (dsh-settings schema(entry))');
+if (host.Config['~standard']?.vendor !== 'schemastery') throw new Error('Config must pass loader isSchemastery()');
+{
+  // dsh-settings 的真实用法：new z(schema.toJSON()) 用官方真库重建我们的 schema。
+  const z = (await import(pathToFileURL(path.join(pluginDir, 'vendor', 'schemastery.mjs')).href)).default;
+  const rebuilt = new z(host.Config.toJSON());
+  if (rebuilt.dict?.monitors?.meta?.volatile !== true) {
+    throw new Error('monitors must survive toJSON round-trip as volatile, else the entry is dropped');
+  }
+  console.log('Config gates: toJSON + ~standard.vendor + volatile round-trip OK');
+}
 
 function mount(config) {
   const { ctx, routes } = mockCtx();
